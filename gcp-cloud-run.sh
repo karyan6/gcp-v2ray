@@ -138,6 +138,10 @@ show_config_summary() {
     echo "UUID:          $UUID"
     echo "Bot Token:     ${TELEGRAM_BOT_TOKEN:0:8}..."
     echo "Channel ID:    $TELEGRAM_CHANNEL_ID"
+    echo "Min Instances: 3"
+    echo "Max Instances: 100"
+    echo "Concurrency:   1000"
+    echo "Timeout:       3600s"
     echo
     
     while true; do
@@ -259,6 +263,10 @@ main() {
         --allow-unauthenticated \
         --cpu 2 \
         --memory 4Gi \
+        --min-instances 3 \
+        --max-instances 100 \
+        --concurrency 1000 \
+        --timeout 3600s \
         --quiet; then
         error "Deployment failed"
         exit 1
