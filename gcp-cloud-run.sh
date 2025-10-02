@@ -264,7 +264,6 @@ main() {
         --cpu 2 \
         --memory 4Gi \
         --min-instances 3 \
-        --max-instances 100 \
         --concurrency 1000 \
         --timeout 3600s \
         --quiet; then
