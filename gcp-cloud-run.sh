@@ -61,7 +61,7 @@ select_region() {
     echo "1. us-central1 (Iowa, USA)"
     echo "2. us-west1 (Oregon, USA)" 
     echo "3. us-east1 (South Carolina, USA)"
-    echo "4. europe-west1 (Belgium)"
+    echo "4. europe-west4 (Netherlands)"
     echo "5. asia-southeast1 (Singapore)"
     echo "6. asia-northeast1 (Tokyo, Japan)"
     echo
@@ -72,7 +72,7 @@ select_region() {
             1) REGION="us-central1"; break ;;
             2) REGION="us-west1"; break ;;
             3) REGION="us-east1"; break ;;
-            4) REGION="europe-west1"; break ;;
+            4) REGION="europe-west4"; break ;;
             5) REGION="asia-southeast1"; break ;;
             6) REGION="asia-northeast1"; break ;;
             *) echo "Invalid selection. Please enter a number between 1-6." ;;
