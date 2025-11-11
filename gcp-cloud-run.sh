@@ -157,54 +157,25 @@ show_config_summary() {
     done
 }
 
-# Modified API enabling function with error handling
-enable_apis_safe() {
-    log "Checking and enabling required APIs..."
-    
-    local apis=("cloudbuild.googleapis.com" "run.googleapis.com" "iam.googleapis.com")
-    local project_id=$(gcloud config get-value project)
-    
-    for api in "${apis[@]}"; do
-        info "Checking $api..."
-        
-        # Check if API is already enabled
-        if gcloud services list --enabled --filter="name:$api" --format="value(name)" 2>/dev/null | grep -q "$api"; then
-            log "✅ $api is already enabled"
-            continue
-        fi
-        
-        # Try to enable API with better error handling
-        warn "Attempting to enable $api..."
-        if gcloud services enable "$api" --quiet 2>&1; then
-            log "✅ Successfully enabled $api"
-        else
-            error "❌ Failed to enable $api - This is expected in Qwiklabs"
-            warn "Continuing without enabling $api..."
-        fi
-    done
-}
-
 # Validation functions
 validate_prerequisites() {
     log "Validating prerequisites..."
     
     if ! command -v gcloud &> /dev/null; then
-        error "gcloud CLI is not installed."
+        error "gcloud CLI is not installed. Please install Google Cloud SDK."
         exit 1
     fi
     
     if ! command -v git &> /dev/null; then
-        error "git is not installed."
+        error "git is not installed. Please install git."
         exit 1
     fi
     
     local PROJECT_ID=$(gcloud config get-value project)
     if [[ -z "$PROJECT_ID" || "$PROJECT_ID" == "(unset)" ]]; then
-        error "No project configured."
+        error "No project configured. Run: gcloud config set project PROJECT_ID"
         exit 1
     fi
-    
-    info "Project: $PROJECT_ID"
 }
 
 cleanup() {
@@ -232,62 +203,16 @@ send_to_telegram() {
     local content="${response%???}"
     
     if [[ "$http_code" == "200" ]]; then
-        log "✅ Successfully sent to Telegram channel"
+        log "âœ… Successfully sent to Telegram channel"
         return 0
     else
-        error "❌ Failed to send to Telegram (HTTP $http_code): $content"
+        error "âŒ Failed to send to Telegram (HTTP $http_code): $content"
         return 1
     fi
-}
-
-# Modified deployment function for Qwiklabs compatibility
-deploy_to_cloud_run() {
-    local project_id=$(gcloud config get-value project)
-    
-    # Clean up any existing directory
-    cleanup
-    
-    log "Cloning repository..."
-    if ! git clone -q https://github.com/karyan6/gcp-v2ray.git; then
-        error "Failed to clone repository"
-        return 1
-    fi
-    
-    cd gcp-v2ray
-    
-    # Try different deployment methods
-    log "Attempting deployment method 1: Direct source deployment..."
-    
-    if gcloud run deploy ${SERVICE_NAME} \
-        --source . \
-        --platform managed \
-        --region ${REGION} \
-        --allow-unauthenticated \
-        --memory 2Gi \
-        --cpu 2 \
-        --quiet 2>&1; then
-        return 0
-    fi
-    
-    warn "Method 1 failed, trying method 2: With buildpack..."
-    
-    if gcloud run deploy ${SERVICE_NAME} \
-        --source . \
-        --platform managed \
-        --region ${REGION} \
-        --allow-unauthenticated \
-        --memory 2Gi \
-        --cpu 2 \
-        --quiet 2>&1; then
-        return 0
-    fi
-    
-    error "All deployment methods failed"
-    return 1
 }
 
 main() {
-    info "=== GCP Cloud Run V2Ray Deployment (Qwiklabs Compatible) ==="
+    info "=== GCP Cloud Run V2Ray Deployment ==="
     
     # Get user input
     select_region
@@ -306,25 +231,60 @@ main() {
     # Set trap for cleanup
     trap cleanup EXIT
     
-    # Try to enable APIs (will continue even if it fails)
-    enable_apis_safe
+    log "Enabling required APIs..."
+    gcloud services enable \
+        cloudbuild.googleapis.com \
+        run.googleapis.com \
+        iam.googleapis.com \
+        --quiet
     
-    # Attempt deployment
-    if deploy_to_cloud_run; then
-        # Get the service URL
-        SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} \
-            --region ${REGION} \
-            --format 'value(status.url)' \
-            --quiet 2>/dev/null || echo "https://${SERVICE_NAME}-*.run.app")
-        
-        DOMAIN=$(echo $SERVICE_URL | sed 's|https://||')
-        
-        # Create Vless share link
-        VLESS_LINK="vless://${UUID}@${HOST_DOMAIN}:443?path=%2Ftg-ttak19&security=tls&alpn=h3%2Ch2%2Chttp%2F1.1&encryption=none&host=${DOMAIN}&fp=randomized&type=ws&sni=${DOMAIN}#${SERVICE_NAME}"
-        
-        # Create message
-        MESSAGE="━━━━━━━━━━━━━━━━━━━━
-*Cloud Run Deploy Success* ✅
+    # Clean up any existing directory
+    cleanup
+    
+    log "Cloning repository..."
+    if ! git clone https://github.com/karyan6/gcp-v2ray.git; then
+        error "Failed to clone repository"
+        exit 1
+    fi
+    
+    cd gcp-v2ray
+    
+    log "Building container image..."
+    if ! gcloud builds submit --tag gcr.io/${PROJECT_ID}/gcp-v2ray-image --quiet; then
+        error "Build failed"
+        exit 1
+    fi
+    
+    log "Deploying to Cloud Run..."
+    if ! gcloud run deploy ${SERVICE_NAME} \
+        --image gcr.io/${PROJECT_ID}/gcp-v2ray-image \
+        --platform managed \
+        --region ${REGION} \
+        --allow-unauthenticated \
+        --cpu 2 \
+        --memory 2Gi \
+        --min-instances 3 \
+        --concurrency 1000 \
+        --timeout 3600s \
+        --quiet; then
+        error "Deployment failed"
+        exit 1
+    fi
+    
+    # Get the service URL
+    SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} \
+        --region ${REGION} \
+        --format 'value(status.url)' \
+        --quiet)
+    
+    DOMAIN=$(echo $SERVICE_URL | sed 's|https://||')
+    
+    # Create Vless share link
+    VLESS_LINK="vless://${UUID}@${HOST_DOMAIN}:443?path=%2Ftg-ttak19&security=tls&alpn=h3%2Ch2%2Chttp%2F1.1&encryption=none&host=${DOMAIN}&fp=randomized&type=ws&sni=${DOMAIN}#${SERVICE_NAME}"
+    
+    # Create message
+    MESSAGE="â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
+*Cloud Run Deploy Success* âœ…
 *Project:* \`${PROJECT_ID}\`
 *Service:* \`${SERVICE_NAME}\`
 *Region:* \`${REGION}\`
@@ -334,34 +294,29 @@ main() {
 ${VLESS_LINK}
 \`\`\`
 *Usage:* Copy the above link and import to your V2Ray client
-━━━━━━━━━━━━━━━━━━━━"
-        
-        # Save to file
-        echo "$MESSAGE" > deployment-info.txt
-        log "Deployment info saved to deployment-info.txt"
-        
-        # Display locally
-        echo
-        info "=== Deployment Information ==="
-        echo "$MESSAGE"
-        echo
-        
-        # Send to Telegram
-        log "Sending deployment info to Telegram..."
-        if send_to_telegram "$MESSAGE"; then
-            log "✅ Message sent successfully to Telegram"
-        else
-            warn "Message failed to send to Telegram, but deployment was successful"
-        fi
-        
-        log "Deployment completed successfully!"
-        log "Service URL: $SERVICE_URL"
-        
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+    
+    # Save to file
+    echo "$MESSAGE" > deployment-info.txt
+    log "Deployment info saved to deployment-info.txt"
+    
+    # Display locally
+    echo
+    info "=== Deployment Information ==="
+    echo "$MESSAGE"
+    echo
+    
+    # Send to Telegram
+    log "Sending deployment info to Telegram..."
+    if send_to_telegram "$MESSAGE"; then
+        log "âœ… Message sent successfully to Telegram"
     else
-        error "Deployment failed. This is expected in Qwiklabs environment."
-        warn "Try using your own GCP project with full permissions."
-        info "You can get free $300 credit for testing at: https://cloud.google.com/free"
+        warn "Message failed to send to Telegram, but deployment was successful"
     fi
+    
+    log "Deployment completed successfully!"
+    log "Service URL: $SERVICE_URL"
+    log "Configuration saved to: deployment-info.txt"
 }
 
 # Run main function
