@@ -262,7 +262,7 @@ main() {
         --region ${REGION} \
         --allow-unauthenticated \
         --cpu 2 \
-        --memory 2Gi \
+        --memory 4Gi \
         --min-instances 3 \
         --concurrency 1000 \
         --timeout 3600s \
